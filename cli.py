@@ -156,6 +156,39 @@ def cmd_test_connection(args):
             print(f"  • Team ID {t.get('id'):<3}: {tname}")
     print("\nReady to track trade eligibility!")
 
+
+def cmd_backtest(args):
+    db = Database(DEFAULT_CONFIG.db_path)
+    runner = get_runner(db)
+    
+    if args.start_date and args.end_date:
+        start_dt = datetime.strptime(args.start_date, "%Y-%m-%d").date()
+        end_dt = datetime.strptime(args.end_date, "%Y-%m-%d").date()
+    else:
+        days = args.days or 10
+        end_dt = (datetime.now(ET_TZ) - timedelta(days=1)).date()
+        start_dt = end_dt - timedelta(days=days - 1)
+        
+    print(f"\nStarting Backtest from {start_dt} to {end_dt}...")
+    current_dt = start_dt
+    days_evaluated = 0
+    
+    while current_dt <= end_dt:
+        date_str = current_dt.isoformat()
+        sp = runner.get_scoring_period_id_for_date(current_dt)
+        print(f"  • Evaluating {date_str} (SP: {sp})...", end=" ", flush=True)
+        ok = runner.run_final_capture_and_evaluation(date_str)
+        if ok:
+            print("OK")
+        else:
+            print("SKIPPED / UNKNOWN")
+        days_evaluated += 1
+        current_dt += timedelta(days=1)
+        
+    print(f"\nBacktest Complete! Evaluated {days_evaluated} dates.")
+    print("\nFINAL TRADE ELIGIBILITY STATUS AFTER BACKTEST:")
+    cmd_status(args)
+
 def main():
     parser = argparse.ArgumentParser(description="NBA Fantasy Trade Eligibility System CLI")
     subparsers = parser.add_subparsers(dest="cmd", help="Subcommand to execute")
@@ -209,6 +242,14 @@ def main():
     # test-connection
     p_test = subparsers.add_parser("test-connection", help="Verify credentials and connection to ESPN league")
     p_test.set_defaults(func=cmd_test_connection)
+
+    
+    # backtest
+    p_bt = subparsers.add_parser("backtest", help="Run historical backtest over past dates")
+    p_bt.add_argument("--start-date", help="Start date (YYYY-MM-DD)")
+    p_bt.add_argument("--end-date", help="End date (YYYY-MM-DD)")
+    p_bt.add_argument("--days", type=int, default=10, help="Number of days to backtest ending yesterday")
+    p_bt.set_defaults(func=cmd_backtest)
 
     args = parser.parse_args()
     if not args.cmd:

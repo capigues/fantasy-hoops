@@ -105,15 +105,21 @@ class DailyWorkflowRunner:
 
         # Check pre-tip snapshot first
         pre_tip_snap = self.db.get_snapshot(eval_date_str, "pre_tip")
-        if not pre_tip_snap or pre_tip_snap.get("status") == "failed":
-            logger.warning("Pre-tip snapshot missing or failed for %s. Treating as unknown day.", eval_date_str)
-            # Create unknown day facts
-            # In an unknown day, counters pause, state unchanged
-            return self._record_unknown_day(eval_date_str)
-
-        pre_tip_payload = pre_tip_snap.get("payload", {})
-        sb_info = pre_tip_payload.get("scoreboard", {})
-        is_game_day = sb_info.get("is_game_day", False)
+        if pre_tip_snap and pre_tip_snap.get("status") == "success":
+            pre_tip_payload = pre_tip_snap.get("payload", {})
+            sb_info = pre_tip_payload.get("scoreboard", {})
+            is_game_day = sb_info.get("is_game_day", False)
+            pre_tip_roster_data = pre_tip_payload.get("roster_data", {})
+        else:
+            # Single-run mode: fetch scoreboard directly for eval_date
+            logger.info("Pre-tip snapshot not found for %s. Operating in single-run mode.", eval_date_str)
+            ok_sb, sb_data, err_sb = self.espn_client.fetch_nba_scoreboard(eval_date_str)
+            if not ok_sb or not sb_data:
+                logger.error("Failed to fetch NBA scoreboard for %s: %s", eval_date_str, err_sb)
+                return self._record_unknown_day(eval_date_str)
+            sb_info = self.espn_client.parse_scoreboard_info(sb_data)
+            is_game_day = sb_info.get("is_game_day", False)
+            pre_tip_roster_data = None
 
         if not is_game_day:
             logger.info("%s is not a game day. Skipping evaluation.", eval_date_str)
@@ -134,7 +140,7 @@ class DailyWorkflowRunner:
 
         # Now evaluate each team
         teams_with_games = set(sb_info.get("teams_playing", []))
-        teams_pre_tip = self._normalize_teams_roster(pre_tip_payload.get("roster_data", {}))
+        teams_pre_tip = self._normalize_teams_roster(pre_tip_roster_data) if pre_tip_roster_data else self._normalize_teams_roster(final_roster_data)
         teams_final = self._normalize_teams_roster(final_roster_data)
 
         all_state_changes = []
