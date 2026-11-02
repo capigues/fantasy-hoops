@@ -140,8 +140,8 @@ class DailyWorkflowRunner:
 
         # Now evaluate each team
         teams_with_games = set(sb_info.get("teams_playing", []))
-        teams_pre_tip = self._normalize_teams_roster(pre_tip_roster_data) if pre_tip_roster_data else self._normalize_teams_roster(final_roster_data)
-        teams_final = self._normalize_teams_roster(final_roster_data)
+        teams_pre_tip = self._normalize_teams_roster(pre_tip_roster_data, sp_id) if pre_tip_roster_data else self._normalize_teams_roster(final_roster_data, sp_id)
+        teams_final = self._normalize_teams_roster(final_roster_data, sp_id)
 
         all_state_changes = []
 
@@ -218,7 +218,7 @@ class DailyWorkflowRunner:
             self.notifier.send_state_change_notifications(all_state_changes)
         return True
 
-    def _normalize_teams_roster(self, raw_espn_data: Dict[str, Any]) -> Dict[int, Dict[str, Any]]:
+    def _normalize_teams_roster(self, raw_espn_data: Dict[str, Any], scoring_period_id: int = 0) -> Dict[int, Dict[str, Any]]:
         """Normalize ESPN v3 roster response into a clean dictionary by teamId."""
         teams = {}
         for t in raw_espn_data.get("teams", []):

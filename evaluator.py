@@ -118,6 +118,12 @@ class DailyEvaluator:
         # Find healthy eligible bench players who have a game today
         available_bench_candidates = []
         for b in bench_entries:
+            # If box score minutes data exists and they played, they were 100% available!
+            if b.get("has_played"):
+                available_bench_candidates.append(b)
+                continue
+
+            # Otherwise, check traditional pre-tip criteria:
             # Must NOT be OUT
             if b["injuryStatus"] == STATUS_OUT:
                 continue
@@ -174,6 +180,9 @@ class DailyEvaluator:
         ir_is_empty = len(ir_entries) == 0
         out_players_not_in_ir = []
         for p in active_entries + bench_entries:
+            # If they played minutes, they were NOT out on date D!
+            if p.get("has_played"):
+                continue
             if p["injuryStatus"] == STATUS_OUT:
                 out_players_not_in_ir.append({
                     "playerId": p["playerId"],
