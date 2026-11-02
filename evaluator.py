@@ -3,6 +3,7 @@
 import logging
 from typing import Any, Dict, List, Optional, Set
 from config import (
+    BENCH_SLOTS,
     INJURY_STATUSES_COUNTED_AS_INJURED,
     IR_SLOTS,
     SLOT_BENCH,
@@ -101,9 +102,9 @@ class DailyEvaluator:
                 "injuryNotes": injury_notes
             }
 
-            if slot_id == SLOT_IR:
+            if slot_id in IR_SLOTS:
                 ir_entries.append(player_item)
-            elif slot_id == SLOT_BENCH:
+            elif slot_id in BENCH_SLOTS:
                 bench_entries.append(player_item)
             elif is_active_slot(slot_id):
                 active_entries.append(player_item)

@@ -34,10 +34,23 @@ class DailyWorkflowRunner:
         self.scoring_period_start_date = scoring_period_start_date
 
     def get_scoring_period_id_for_date(self, target_date: date) -> int:
-        """Map calendar date to ESPN scoring period id if start date provided, else 1."""
+        """Dynamically map calendar date to ESPN scoring period id."""
         if self.scoring_period_start_date:
             delta = (target_date - self.scoring_period_start_date).days + 1
             return max(1, delta)
+        
+        # Query latestScoringPeriod from ESPN
+        try:
+            ok, data, _ = self.espn_client._get_json(
+                f"https://lm-api-reads.fantasy.espn.com/apis/v3/games/fba/seasons/{self.espn_client.season_year}/segments/0/leagues/{self.espn_client.league_id}?view=mScoreboard"
+            )
+            if ok and data and "status" in data:
+                latest_sp = data["status"].get("latestScoringPeriod", 1)
+                today_et = datetime.now(ET_TZ).date()
+                day_diff = (today_et - target_date).days
+                return max(1, latest_sp - day_diff)
+        except Exception as e:
+            logger.warning("Could not query dynamic scoring period: %s", e)
         return 1
 
     def run_pre_tip_capture(self, eval_date_str: str) -> bool:
