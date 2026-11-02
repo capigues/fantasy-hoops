@@ -117,6 +117,45 @@ def cmd_out_for_season(args):
         for pid, p in players.items():
             print(f"{pid:<10} | {p['player_name']:<28} | {p['date_designated']:<12} | {p['notes']}")
 
+
+def cmd_test_connection(args):
+    print("Testing ESPN Fantasy API connection...")
+    print(f"  League ID: {DEFAULT_CONFIG.league_id}")
+    print(f"  Season:    {DEFAULT_CONFIG.season_year}")
+    print(f"  Auth:      {'SWID & espn_s2 configured' if DEFAULT_CONFIG.swid and DEFAULT_CONFIG.espn_s2 else 'None (public league mode)'}")
+    
+    if not DEFAULT_CONFIG.league_id:
+        print("\n❌ Error: ESPN_LEAGUE_ID is not set! Please configure .env or export ESPN_LEAGUE_ID.")
+        return
+
+    espn = EspnClient(
+        league_id=DEFAULT_CONFIG.league_id,
+        season_year=DEFAULT_CONFIG.season_year,
+        espn_s2=DEFAULT_CONFIG.espn_s2,
+        swid=DEFAULT_CONFIG.swid
+    )
+
+    # 1. Fetch settings
+    ok_set, settings_data, err_set = espn.fetch_league_settings()
+    if not ok_set:
+        print(f"\n❌ Connection Failed: {err_set}")
+        if "Authentication error" in str(err_set):
+            print("💡 Tip: For private leagues, verify your ESPN_S2 and ESPN_SWID cookies.")
+        return
+
+    league_name = settings_data.get("settings", {}).get("name", "Unknown League")
+    print(f"\n✅ Connected successfully to league: '{league_name}'")
+
+    # 2. Fetch teams
+    ok_rst, roster_data, err_rst = espn.fetch_rosters(scoring_period_id=1)
+    if ok_rst and roster_data:
+        teams = roster_data.get("teams", [])
+        print(f"Found {len(teams)} teams:")
+        for t in teams:
+            tname = t.get("name") or f"{t.get('location', '')} {t.get('nickname', '')}".strip()
+            print(f"  • Team ID {t.get('id'):<3}: {tname}")
+    print("\nReady to track trade eligibility!")
+
 def main():
     parser = argparse.ArgumentParser(description="NBA Fantasy Trade Eligibility System CLI")
     subparsers = parser.add_subparsers(dest="cmd", help="Subcommand to execute")
@@ -165,6 +204,11 @@ def main():
 
     ofs_ls = ofs_sub.add_parser("list", help="List registered season-ending players")
     p_ofs.set_defaults(func=cmd_out_for_season)
+
+    
+    # test-connection
+    p_test = subparsers.add_parser("test-connection", help="Verify credentials and connection to ESPN league")
+    p_test.set_defaults(func=cmd_test_connection)
 
     args = parser.parse_args()
     if not args.cmd:

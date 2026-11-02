@@ -1,8 +1,22 @@
-"""Configuration module for NBA Fantasy Trade Eligibility System."""
-
 import os
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo
+
+def load_dotenv(path: str = '.env'):
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    k, v = line.split('=', 1)
+                    os.environ.setdefault(k.strip(), v.strip().strip("'\""))
+
+load_dotenv()
+
+
+
+"""Configuration module for NBA Fantasy Trade Eligibility System."""
+
 
 # Eastern Timezone as specified
 ET_TZ = ZoneInfo("America/New_York")
