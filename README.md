@@ -1,98 +1,143 @@
 # NBA Fantasy Trade Eligibility System
 
-Automated trade-eligibility tracking system for ESPN Head-to-Head (H2H) NBA Fantasy Leagues, flagging teams as **trade-ineligible** when managers neglect their rosters.
+An automated tracking system for our ESPN Head-to-Head NBA Fantasy League. Its purpose is simple: **ensure fair play and keep managers actively maintaining their rosters**.
 
-## Core Rules & Criteria
-
-A team is flagged as **trade-ineligible** if any criterion R1–R4 is in a flagged state:
-
-| ID | Name | Violation Condition | State Transition Rules |
-|---|---|---|---|
-| **R1** | Wasted active slot | Active slot is empty or holds an `OUT` player while a healthy eligible bench player with an NBA game was available | Trailing **14 game days** window. Flags at **$\ge$ 4** wasted days; clears at **$\le$ 1** wasted days; preserves state at 2 or 3 wasted days (hysteresis). |
-| **R2** | Unused IR spot | The IR slot is empty while an `OUT` player sits in an active or bench slot | **Grace: 2 game days** (flags on 3rd consecutive violating game day). **Cooldown: 2 game days** (clears after 2 consecutive clean game days). |
-| **R3** | Dead roster spot | A player officially out for the season is on the roster in any slot (including IR) | **Grace: 2 game days** (flags on 3rd consecutive violating game day). **Cooldown: 2 game days**. |
-| **R4** | Invalid roster | Roster is below league minimum or exceeding slot limits | **Grace: 2 game days** (flags on 3rd consecutive violating game day). **Cooldown: 2 game days**. |
-
-### Key Clarifications
-- All counters run in **game days** (days with $\ge 1$ NBA game). No-game days are skipped entirely.
-- Only `"OUT"` counts as injured. `"QUESTIONABLE"` and `"DAY_TO_DAY"` players never trigger violations.
-- Incomplete or failed captures are recorded as `unknown`: counters pause, and unknown days never clear flags.
-- Evaluation is **deterministic and replayable** from stored raw snapshots.
+If a manager neglects their lineup or roster requirements, their team is flagged as **Trade-Ineligible** until the issues are resolved.
 
 ---
 
-## Architecture & Project Structure
+## 🏀 League Roster Structure
 
-- `config.py`: League settings, slot IDs, timing parameters, and constants.
-- `db.py`: SQLite persistence layer with WAL mode (`raw_snapshots`, `daily_facts`, `team_criteria_state`, `state_change_log`, `season_ending_players`).
-- `espn_client.py`: API client for ESPN Fantasy Basketball v3 and public NBA Scoreboard & Injury endpoints.
-- `injury_source.py`: Hybrid manager combining automated ESPN injury note analysis with a canonical commissioner registry.
-- `evaluator.py`: Pure, deterministic evaluation of criteria R1 to R4 for any date $D$.
-- `state_machine.py`: Manages the 14-day sliding window, grace, cooldown, hysteresis, and audit logs.
-- `scheduler.py`: Timezone-aware capture orchestrator (Pre-Tip offset and 2:00 AM ET evaluation).
-- `notifier.py`: Formatter for ASCII status tables, Discord/Slack webhooks, and alert logs.
-- `cli.py`: Commissioner management CLI.
-- `tests/`: 26 comprehensive unit and acceptance tests covering all 17 specification scenarios.
+Each team has a total roster of up to **14 players**, broken down into:
+
+- **10 Active Starters**:
+  - Point Guard (PG) - 1 slot
+  - Shooting Guard (SG) - 1 slot
+  - Small Forward (SF) - 1 slot
+  - Power Forward (PF) - 1 slot
+  - Center (C) - 1 slot
+  - Guard (G) - 1 slot
+  - Forward (F) - 1 slot
+  - Utility (UTIL) - 3 slots
+- **3 Bench Players (BE)**
+- **1 Injured Reserve Slot (IR)**
+
+*Note: Active starters lock at tip-off. Active slots can be filled by any player eligible for that position, and UTIL slots can be filled by any position.*
 
 ---
 
-## Getting Started
+## 📋 The 4 Roster Rules Explained in Plain English
 
-### Configuration
-Set environment variables or pass options in `.env`:
-```bash
-export ESPN_LEAGUE_ID=123456
-export ESPN_SEASON_YEAR=2026
-export ESPN_S2="your_espn_s2_cookie"
-export ESPN_SWID="{your-swid-guid}"
-export FANTASY_DB_PATH="fantasy_eligibility.db"
-export COMMISSIONER_WEBHOOK_URL="https://discord.com/api/webhooks/..."
+A team must follow 4 core roster requirements. If any rule is violated beyond its grace period or threshold, the team loses trade eligibility.
+
+```
+       ┌────────────────────────────────────────────────────────┐
+       │                Are You Trade Eligible?                 │
+       │                                                        │
+       │   R1: No repeated wasted active starter slots?         │
+       │   R2: Utilizing your IR spot when players are OUT?     │
+       │   R3: No season-ending injured players kept rostered?  │
+       │   R4: Legal roster size (≥13 players) & ≤1 IR?         │
+       │                                                        │
+       │   ✅ All Clean  ──>  ELIGIBLE TO TRADE                 │
+       │   ❌ Any Flag   ──>  TRADE INELIGIBLE                  │
+       └────────────────────────────────────────────────────────┘
 ```
 
-### Running CLI Commands
+---
 
-#### View League Status
+### Rule 1 (R1): Wasted Active Starter Slot
+> **The Golden Rule**: Start your healthy players. Don't leave empty starter spots or bench healthy players playing that night while leaving an injured player in your lineup.
+
+* **What counts as a violation?**
+  Leaving an active starter slot empty OR starting a player designated as **OUT**, **while** you had a healthy, position-eligible bench player who played an NBA game that night.
+* **What does NOT count as a violation?**
+  - **No Bench Replacement**: If all your bench players also had no game that night, or were also OUT, starting an OUT player is **not** penalized. (You couldn't have played anyone else anyway!)
+  - **Wrong Position**: If you start an OUT Point Guard, but your only healthy bench player is a Center who cannot play PG/G/UTIL, it is **not** a violation.
+  - **Day-to-Day / Questionable**: Starting a player listed as Questionable or Day-to-Day (DTD) is completely fine. Only officially **`OUT`** players trigger this check.
+  - **They Actually Played**: If a player was listed as OUT on paper but suited up and logged minutes in the box score, the system recognizes that they played. No penalty!
+* **How the Penalty Works (14-Game-Day Window)**:
+  - We look at a rolling window of the last **14 NBA game days**.
+  - **Violated / Ineligible**: If you waste an active slot on **4 or more game days** in that 14-day window.
+  - **Cleared / Eligible**: Clears back to eligible once your wasted days drop to **1 or 0**.
+  - *(At 2 or 3 wasted days, your current status stays the same to avoid constant flip-flopping).*
+
+---
+
+### Rule 2 (R2): Unused IR Spot
+> **Put your injured stars in IR**. Don't let an empty IR spot go to waste when you have players sidelined.
+
+* **What counts as a violation?**
+  Your IR slot is completely **empty**, while you have one or more players listed as **`OUT`** sitting on your active roster or bench.
+* **What does NOT count as a violation?**
+  - Your IR slot is already filled by an injured player.
+  - The sidelined player is only Day-to-Day (DTD) or Questionable (they must be designated as `OUT` to be eligible for IR).
+  - The player actually played minutes that day.
+* **How the Penalty Works (2-Day Grace Period)**:
+  - You get a **2-game-day grace period** to move an `OUT` player into your IR slot.
+  - If you leave the IR slot empty with an `OUT` player for **3 consecutive game days**, your team is flagged **Trade-Ineligible**.
+  - To clear it: Simply move an injured player into IR (or wait until your player returns to active status) for **2 consecutive game days**.
+
+---
+
+### Rule 3 (R3): Dead Roster Spot (Season-Ending Injuries)
+> **No hoarding players out for the year**. Drop players who are officially ruled out for the remainder of the season.
+
+* **What counts as a violation?**
+  Carrying a player on your roster (even on IR) who has been officially ruled out for the rest of the NBA season (e.g., torn ACL, season-ending surgery).
+* **How the Penalty Works (2-Day Grace Period)**:
+  - You have **2 game days** from the official designation to drop the player.
+  - On the **3rd consecutive game day**, your team becomes trade-ineligible.
+  - Clears immediately after the player is dropped and verified over 2 clean game days.
+
+---
+
+### Rule 4 (R4): Invalid Roster Size & IR Limits
+> **Maintain a legal roster**. Keep at least 13 players and never exceed 1 IR spot.
+
+* **What counts as a violation?**
+  - Carrying fewer than 13 total players (e.g., dropping players and leaving empty roster spots).
+  - Having more than 1 player in the IR slot.
+* **How the Penalty Works (2-Day Grace Period)**:
+  - You have **2 game days** to add a player or resolve the IR overflow.
+  - Flags on the **3rd consecutive game day**; clears after 2 consecutive clean game days.
+
+---
+
+## ⏱️ How & When It Runs
+
+1. **Game Days Only**: Off-days (days with 0 NBA games, like Thanksgiving or All-Star break) do not count toward grace periods or trailing windows.
+2. **Single Daily Evaluation**: Evaluated every morning after all games finish (2:00 AM ET).
+3. **Ground-Truth Verification**: The system cross-references ESPN fantasy lineups with official NBA box-score minutes to make sure no manager is penalized due to inaccurate pre-game injury labels.
+4. **Historical Baseline**: Continuous tracking began on **November 1, 2026**.
+
+---
+
+## 💻 Commissioner & Manager Commands
+
+You can run these commands from the terminal to inspect the league:
+
 ```bash
+# View the full league table and trade eligibility of all teams
 python3 cli.py status
-```
 
-#### View Audit Trail / State Transitions
-```bash
+# Inspect the audit log of recent violations and state changes
 python3 cli.py audit-log --limit 20
-```
 
-#### Trigger Pre-Tip Capture
-```bash
-python3 cli.py pre-tip --date 2026-11-01
-```
-
-#### Run 2 AM Evaluation for Date $D$
-```bash
+# Run evaluation for a specific date
 python3 cli.py evaluate --date 2026-11-01
-```
 
-#### Deterministic Replay
-```bash
-python3 cli.py replay --date 2026-11-01
-```
-
-#### Manage Season-Ending Out-For-Season Registry
-```bash
-# Add player
-python3 cli.py out-for-season add 3032977 "Player Name" --notes "Torn ACL"
-
-# List players
+# Manage season-ending injury registry
 python3 cli.py out-for-season list
-
-# Remove player
-python3 cli.py out-for-season remove 3032977
+python3 cli.py out-for-season add <player_id> "Player Name" --notes "Torn ACL"
 ```
 
 ---
 
-## Testing
+## 🧪 Running Automated Tests
 
-Run all 26 unit and acceptance tests:
+All 26 unit and scenario tests can be verified at any time:
+
 ```bash
 python3 -m unittest discover tests
 ```
