@@ -230,12 +230,12 @@ class DailyWorkflowRunner:
             for entry in entries:
                 pid = entry.get("playerId")
                 slot_id = entry.get("lineupSlotId")
-                injury_status = entry.get("injuryStatus", "ACTIVE")
                 player_pool = entry.get("playerPoolEntry", {})
                 player_info = player_pool.get("player", {})
+                injury_status = player_info.get("injuryStatus") or entry.get("injuryStatus", "ACTIVE")
                 p_name = player_info.get("fullName") or f"Player_{pid}"
                 eligible_slots = player_info.get("eligibleSlots", [])
-                pro_team = player_info.get("proTeam", "")
+                pro_team = player_info.get("proTeamId") if player_info.get("proTeamId") is not None else player_info.get("proTeam", "")
 
                 players.append({
                     "playerId": pid,

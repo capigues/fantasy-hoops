@@ -99,6 +99,13 @@ class EspnClient:
                     name = team.get("displayName")
                     if name:
                         teams_playing.add(name.upper())
+                    tid = team.get("id") or competitor.get("id")
+                    if tid is not None:
+                        teams_playing.add(str(tid))
+                        try:
+                            teams_playing.add(int(tid))
+                        except (ValueError, TypeError):
+                            pass
 
         earliest_tip_et = earliest_tip_utc.astimezone(ET_TZ) if earliest_tip_utc else None
 

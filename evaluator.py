@@ -67,10 +67,10 @@ class DailyEvaluator:
             if pid is None:
                 continue
             status = entry.get("injuryStatus", "ACTIVE")
-            pre_tip_injuries[pid] = status.upper()
+            pre_tip_injuries[pid] = str(status).upper()
             pro_team = entry.get("proTeam", "")
-            if pro_team:
-                pre_tip_pro_teams[pid] = pro_team.upper()
+            if pro_team is not None and pro_team != "":
+                pre_tip_pro_teams[pid] = str(pro_team)
             notes = entry.get("injuryNotes", "")
             if notes:
                 pre_tip_notes[pid] = notes
@@ -88,7 +88,8 @@ class DailyEvaluator:
             slot_id = entry.get("lineupSlotId")
             p_name = entry.get("name", f"Player_{pid}")
             eligible_slots = set(entry.get("eligibleSlots", []))
-            pro_team = (entry.get("proTeam") or pre_tip_pro_teams.get(pid, "")).upper()
+            raw_pro = entry.get("proTeam") or pre_tip_pro_teams.get(pid, "")
+            pro_team = str(raw_pro).upper() if raw_pro is not None else ""
             injury_status = pre_tip_injuries.get(pid, entry.get("injuryStatus", "ACTIVE")).upper()
             injury_notes = pre_tip_notes.get(pid, entry.get("injuryNotes", ""))
 
@@ -122,8 +123,16 @@ class DailyEvaluator:
                 continue
             # Must have an NBA game today
             p_team = b["proTeam"]
-            if p_team and p_team not in teams_with_games:
-                continue
+            if p_team:
+                in_games = (p_team in teams_with_games or
+                            str(p_team) in teams_with_games)
+                try:
+                    if int(p_team) in teams_with_games:
+                        in_games = True
+                except (ValueError, TypeError):
+                    pass
+                if not in_games:
+                    continue
             available_bench_candidates.append(b)
 
         wasted_slots = []
