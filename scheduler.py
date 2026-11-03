@@ -29,29 +29,20 @@ class DailyWorkflowRunner:
         self.espn_client = espn_client
         self.injury_source = injury_source
         self.notifier = notifier
-        self.evaluator = DailyEvaluator(injury_source, DEFAULT_CONFIG.min_roster_size, DEFAULT_CONFIG.max_ir_slots)
+        self.evaluator = DailyEvaluator(
+            injury_source,
+            DEFAULT_CONFIG.min_roster_size,
+            DEFAULT_CONFIG.max_ir_slots,
+            expected_active_slots=10
+        )
         self.state_machine = StateMachine(db)
         self.scoring_period_start_date = scoring_period_start_date
 
     def get_scoring_period_id_for_date(self, target_date: date) -> int:
-        """Dynamically map calendar date to ESPN scoring period id."""
-        if self.scoring_period_start_date:
-            delta = (target_date - self.scoring_period_start_date).days + 1
-            return max(1, delta)
-        
-        # Query latestScoringPeriod from ESPN
-        try:
-            ok, data, _ = self.espn_client._get_json(
-                f"https://lm-api-reads.fantasy.espn.com/apis/v3/games/fba/seasons/{self.espn_client.season_year}/segments/0/leagues/{self.espn_client.league_id}?view=mScoreboard"
-            )
-            if ok and data and "status" in data:
-                latest_sp = data["status"].get("latestScoringPeriod", 1)
-                today_et = datetime.now(ET_TZ).date()
-                day_diff = (today_et - target_date).days
-                return max(1, latest_sp - day_diff)
-        except Exception as e:
-            logger.warning("Could not query dynamic scoring period: %s", e)
-        return 1
+        """Dynamically map calendar date to ESPN scoring period id (Season Start: Oct 20, 2026 = SP 1)."""
+        start_date = self.scoring_period_start_date or date(2026, 10, 20)
+        delta = (target_date - start_date).days + 1
+        return max(1, delta)
 
     def run_pre_tip_capture(self, eval_date_str: str) -> bool:
         """Capture injury statuses and schedule before first tip for eval_date."""
@@ -218,39 +209,129 @@ class DailyWorkflowRunner:
             self.notifier.send_state_change_notifications(all_state_changes)
         return True
 
-    def _normalize_teams_roster(self, raw_espn_data: Dict[str, Any], scoring_period_id: int = 0) -> Dict[int, Dict[str, Any]]:
+    def _parse_roster_entry(
+        self,
+        entry: Dict[str, Any],
+        player_stats_map: Dict[int, Dict[str, Any]],
+        scoring_period_id: int,
+        daily_injury_map: Optional[Dict[int, Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
+        """Parse an individual ESPN roster entry and extract ground-truth minutes and status."""
+        pid = entry.get("playerId")
+        slot_id = entry.get("lineupSlotId")
+        ppe = entry.get("playerPoolEntry", {})
+        player_info = ppe.get("player", {}) or player_stats_map.get(pid, {})
+
+        # Stats & minutes extraction
+        stats_list = player_info.get("stats", []) or player_stats_map.get(pid, {}).get("stats", [])
+        minutes_played = 0.0
+        has_played_minutes = False
+        if scoring_period_id > 0:
+            for s in stats_list:
+                if s.get("scoringPeriodId") == scoring_period_id and s.get("statSourceId") == 0:
+                    st = s.get("stats", {})
+                    min_val = float(st.get("40", 0.0))
+                    pts_val = float(s.get("appliedTotal", 0.0))
+                    if min_val > 0 or pts_val != 0 or len(st) > 0:
+                        minutes_played = max(minutes_played, min_val)
+                        has_played_minutes = True
+
+        applied_stat = ppe.get("appliedStatTotal", 0.0)
+        if applied_stat and applied_stat != 0:
+            has_played_minutes = True
+
+        p_name = player_info.get("fullName") or f"Player_{pid}"
+        pro_team = player_info.get("proTeamId") if player_info.get("proTeamId") is not None else player_info.get("proTeam", "")
+        raw_inj = player_info.get("injuryStatus") or entry.get("injuryStatus", "ACTIVE")
+        injury_notes = ""
+
+        # Ground truth determination:
+        # 1. If player logged box score minutes or fantasy points, they were indisputably ACTIVE
+        if has_played_minutes:
+            injury_status = "ACTIVE"
+        # 2. If official game injury report for date D exists, use that authoritative status
+        elif daily_injury_map and pid in daily_injury_map:
+            injury_status = daily_injury_map[pid].get("status", "ACTIVE")
+            injury_notes = daily_injury_map[pid].get("notes", "")
+        # 3. Otherwise, retain the player's fantasy injury status (e.g. OUT, DTD, etc.)
+        else:
+            injury_status = raw_inj
+
+        return {
+            "playerId": pid,
+            "name": p_name,
+            "lineupSlotId": slot_id,
+            "injuryStatus": injury_status,
+            "rawInjuryStatus": raw_inj,
+            "eligibleSlots": player_info.get("eligibleSlots", []),
+            "proTeam": str(pro_team) if pro_team is not None else "",
+            "minutes_played": minutes_played,
+            "has_played": has_played_minutes,
+            "injuryNotes": injury_notes
+        }
+
+    def _normalize_teams_roster(
+        self,
+        raw_espn_data: Dict[str, Any],
+        scoring_period_id: int = 0,
+        daily_injury_map: Optional[Dict[int, Dict[str, Any]]] = None
+    ) -> Dict[int, Dict[str, Any]]:
         """Normalize ESPN v3 roster response into a clean dictionary by teamId."""
-        teams = {}
+        # 1. Build player stats map and team metadata from raw_espn_data['teams']
+        player_stats_map = {}
+        team_names = {}
         for t in raw_espn_data.get("teams", []):
             tid = t.get("id")
-            team_name = t.get("name") or f"{t.get('location', '')} {t.get('nickname', '')}".strip() or f"Team_{tid}"
-            roster = t.get("roster", {})
-            entries = roster.get("entries", [])
-            players = []
-            for entry in entries:
-                pid = entry.get("playerId")
-                slot_id = entry.get("lineupSlotId")
-                player_pool = entry.get("playerPoolEntry", {})
-                player_info = player_pool.get("player", {})
-                injury_status = player_info.get("injuryStatus") or entry.get("injuryStatus", "ACTIVE")
-                p_name = player_info.get("fullName") or f"Player_{pid}"
-                eligible_slots = player_info.get("eligibleSlots", [])
-                pro_team = player_info.get("proTeamId") if player_info.get("proTeamId") is not None else player_info.get("proTeam", "")
+            raw_loc = t.get('location', '').strip()
+            raw_nick = t.get('nickname', '').strip()
+            full_nick = f"{raw_loc} {raw_nick}".strip()
+            team_names[tid] = t.get("name") or (full_nick if full_nick else f"Team_{tid}")
+            for e in t.get("roster", {}).get("entries", []):
+                pid = e.get("playerId")
+                p = e.get("playerPoolEntry", {}).get("player", {})
+                player_stats_map[pid] = p
 
-                players.append({
-                    "playerId": pid,
-                    "name": p_name,
-                    "lineupSlotId": slot_id,
-                    "injuryStatus": injury_status,
-                    "eligibleSlots": eligible_slots,
-                    "proTeam": pro_team
-                })
-            teams[tid] = {
-                "team_id": tid,
-                "team_name": team_name,
-                "players": players
-            }
+        # 2. Check if historical lineups exist in schedule -> rosterForCurrentScoringPeriod
+        teams = {}
+        if scoring_period_id > 0 and raw_espn_data.get("schedule"):
+            for m in raw_espn_data.get("schedule", []):
+                for side in ["home", "away"]:
+                    t_side = m.get(side)
+                    if not t_side:
+                        continue
+                    tid = t_side.get("teamId")
+                    if tid is None or tid in teams:
+                        continue
+                    rf = t_side.get("rosterForCurrentScoringPeriod")
+                    if not rf:
+                        continue
+
+                    players = [
+                        self._parse_roster_entry(entry, player_stats_map, scoring_period_id, daily_injury_map)
+                        for entry in rf.get("entries", [])
+                    ]
+                    teams[tid] = {
+                        "team_id": tid,
+                        "team_name": team_names.get(tid, f"Team_{tid}"),
+                        "players": players
+                    }
+
+        # 3. Fallback to teams object (used for current day / pre-tip) if schedule didn't provide rosters
+        if not teams:
+            for t in raw_espn_data.get("teams", []):
+                tid = t.get("id")
+                players = [
+                    self._parse_roster_entry(entry, player_stats_map, scoring_period_id, daily_injury_map)
+                    for entry in t.get("roster", {}).get("entries", [])
+                ]
+                teams[tid] = {
+                    "team_id": tid,
+                    "team_name": team_names.get(tid, f"Team_{tid}"),
+                    "players": players
+                }
         return teams
+
+
 
     def _record_unknown_day(self, eval_date_str: str) -> bool:
         # Create fact with is_unknown = True for all known teams

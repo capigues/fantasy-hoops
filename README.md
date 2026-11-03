@@ -11,16 +11,16 @@ If a manager neglects their lineup or roster requirements, their team is flagged
 Each team has a total roster of up to **14 players**, broken down into:
 
 - **10 Active Starters**:
-  - Point Guard (PG) - 1 slot
-  - Shooting Guard (SG) - 1 slot
-  - Small Forward (SF) - 1 slot
-  - Power Forward (PF) - 1 slot
-  - Center (C) - 1 slot
-  - Guard (G) - 1 slot
-  - Forward (F) - 1 slot
-  - Utility (UTIL) - 3 slots
-- **3 Bench Players (BE)**
-- **1 Injured Reserve Slot (IR)**
+  - Point Guard (PG) - 1 slot (Slot 0)
+  - Shooting Guard (SG) - 1 slot (Slot 1)
+  - Small Forward (SF) - 1 slot (Slot 2)
+  - Power Forward (PF) - 1 slot (Slot 3)
+  - Center (C) - 1 slot (Slot 4)
+  - Guard (G) - 1 slot (Slot 5)
+  - Forward (F) - 1 slot (Slot 6)
+  - Utility (UTIL) - 3 slots (Slot 11)
+- **3 Bench Players (BE)** (Slot 12)
+- **1 Injured Reserve Slot (IR)** (Slot 13)
 
 *Note: Active starters lock at tip-off. Active slots can be filled by any player eligible for that position, and UTIL slots can be filled by any position.*
 
@@ -47,20 +47,36 @@ A team must follow 4 core roster requirements. If any rule is violated beyond it
 ---
 
 ### Rule 1 (R1): Wasted Active Starter Slot
-> **The Golden Rule**: Start your healthy players. Don't leave empty starter spots or bench healthy players playing that night while leaving an injured player in your lineup.
+> **The Golden Rule**: Start your active players who have games. Don't leave empty starter spots, bench players who play that night while leaving an inactive/injured starter in your lineup, or start players whose NBA teams have off-days when healthy alternatives exist.
 
-* **What counts as a violation?**
-  Leaving an active starter slot empty OR starting a player designated as **OUT**, **while** you had a healthy, position-eligible bench player who played an NBA game that night.
-* **What does NOT count as a violation?**
-  - **No Bench Replacement**: If all your bench players also had no game that night, or were also OUT, starting an OUT player is **not** penalized. (You couldn't have played anyone else anyway!)
-  - **Wrong Position**: If you start an OUT Point Guard, but your only healthy bench player is a Center who cannot play PG/G/UTIL, it is **not** a violation.
-  - **Day-to-Day / Questionable**: Starting a player listed as Questionable or Day-to-Day (DTD) is completely fine. Only officially **`OUT`** players trigger this check.
-  - **They Actually Played**: If a player was listed as OUT on paper but suited up and logged minutes in the box score, the system recognizes that they played. No penalty!
-* **How the Penalty Works (14-Game-Day Window)**:
-  - We look at a rolling window of the last **14 NBA game days**.
-  - **Violated / Ineligible**: If you waste an active slot on **4 or more game days** in that 14-day window.
-  - **Cleared / Eligible**: Clears back to eligible once your wasted days drop to **1 or 0**.
-  - *(At 2 or 3 wasted days, your current status stays the same to avoid constant flip-flopping).*
+#### The 3-Step Evaluation Process:
+1. **Identify Open / Replaceable Starting Slots (Slots 1–10)**:
+   - A starting slot is literally **unfilled / empty** (starting fewer than 10 players).
+   - A starting slot holds a player designated **`OUT`** (and did not play).
+   - A starting slot holds a starter whose NBA team has **NO GAME** scheduled that day (off-day, scored 0 pts).
+2. **Filter Active Bench Candidates**:
+   - Check every player in Bench Slot 12.
+   - Filter to only players who **had an NBA game today** (actually suited up, played minutes, or scored fantasy points) and were **NOT OUT**.
+   - If no bench players had an NBA game today (or the entire bench was injured), **no violation can occur**.
+3. **Positional Alignment Check**:
+   - Verify whether the active bench player is legally eligible to fill the open/idle starting slot.
+   - For example:
+     - An open **SF (Slot 2)** requires an SF-eligible bench player.
+     - An open **Forward (Slot 6)** requires an SF or PF eligible bench player (a pure Guard cannot take a Forward slot).
+     - An open **UTIL (Slot 11)** can be taken by any healthy bench player who had an NBA game.
+
+#### What does NOT count as a violation?
+- **All Active Starters Had Games**: If all 10 starters had games and played, having extra bench players who also played is expected and valid (you cannot start 11 players).
+- **No Bench Replacement**: If all bench players also had off-days or were OUT, starting an idle player is not penalized.
+- **Wrong Position**: If an open slot is Forward, but your only bench players playing that night are Point Guards who cannot legally play Forward, no violation occurs.
+- **Day-to-Day / Questionable**: Starting a player listed as Questionable or Day-to-Day (DTD) who has a game is completely legal. Only players who are officially `OUT` or have `NO GAME` trigger this check.
+- **Player Actually Played**: If a player was listed as questionable/OUT on paper but suited up and logged box score minutes, the system recognizes that they played.
+
+#### Penalty & Rolling Window:
+- Evaluated across a rolling trailing window of the last **14 NBA game days**.
+- **Flagged (Ineligible)**: $\ge 4$ wasted active slot days in the window.
+- **Cleared (Eligible)**: $\le 1$ wasted active slot day in the window.
+- **Hysteresis Buffer**: At 2 or 3 wasted days, the team's previous state is preserved to avoid flickering.
 
 ---
 
@@ -76,7 +92,7 @@ A team must follow 4 core roster requirements. If any rule is violated beyond it
 * **How the Penalty Works (2-Day Grace Period)**:
   - You get a **2-game-day grace period** to move an `OUT` player into your IR slot.
   - If you leave the IR slot empty with an `OUT` player for **3 consecutive game days**, your team is flagged **Trade-Ineligible**.
-  - To clear it: Simply move an injured player into IR (or wait until your player returns to active status) for **2 consecutive game days**.
+  - To clear it: Simply move an injured player into IR (or wait until your player returns to active status) for **2 consecutive clean game days**.
 
 ---
 
@@ -108,8 +124,8 @@ A team must follow 4 core roster requirements. If any rule is violated beyond it
 
 1. **Game Days Only**: Off-days (days with 0 NBA games, like Thanksgiving or All-Star break) do not count toward grace periods or trailing windows.
 2. **Single Daily Evaluation**: Evaluated every morning after all games finish (2:00 AM ET).
-3. **Ground-Truth Verification**: The system cross-references ESPN fantasy lineups with official NBA box-score minutes to make sure no manager is penalized due to inaccurate pre-game injury labels.
-4. **Historical Baseline**: Continuous tracking began on **November 1, 2026**.
+3. **Ground-Truth Verification**: The system cross-references ESPN fantasy lineups with official NBA box-score minutes and injury reports to ensure zero false positives.
+4. **Uniform Data Contract**: Backtesting and live daily runs share identical data structures, guaranteeing that historical validation and live daily evaluation use the exact same evaluation logic.
 
 ---
 
@@ -127,6 +143,9 @@ python3 cli.py audit-log --limit 20
 # Run evaluation for a specific date
 python3 cli.py evaluate --date 2026-11-01
 
+# Run historical backtesting across a date range
+python3 investigation.py
+
 # Manage season-ending injury registry
 python3 cli.py out-for-season list
 python3 cli.py out-for-season add <player_id> "Player Name" --notes "Torn ACL"
@@ -136,7 +155,7 @@ python3 cli.py out-for-season add <player_id> "Player Name" --notes "Torn ACL"
 
 ## 🧪 Running Automated Tests
 
-All 26 unit and scenario tests can be verified at any time:
+All 29 unit, state machine, and scenario tests can be verified at any time:
 
 ```bash
 python3 -m unittest discover tests

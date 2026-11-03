@@ -8,14 +8,25 @@ from typing import Any, Dict, Generator, List, Optional
 
 class Database:
     def __init__(self, db_path: str = "fantasy_eligibility.db"):
-        self.db_path = db_path
+        self.is_memory = (db_path == ":memory:" or "mode=memory" in db_path)
+        if self.is_memory:
+            self.db_path = "file:memdb?mode=memory&cache=shared"
+            # Keep one connection open so shared memory database stays alive
+            self._keepalive_conn = sqlite3.connect(self.db_path, uri=True)
+        else:
+            self.db_path = db_path
+            self._keepalive_conn = None
         self.init_db()
 
     @contextmanager
     def get_connection(self) -> Generator[sqlite3.Connection, None, None]:
-        conn = sqlite3.connect(self.db_path)
+        if self.is_memory:
+            conn = sqlite3.connect(self.db_path, uri=True)
+        else:
+            conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL;")
+        if not self.is_memory:
+            conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA foreign_keys=ON;")
         try:
             with conn:

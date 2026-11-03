@@ -52,7 +52,7 @@ class EspnClient:
     def fetch_rosters(self, scoring_period_id: int) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
         url = (
             f"https://lm-api-reads.fantasy.espn.com/apis/v3/games/fba/seasons/{self.season_year}"
-            f"/segments/0/leagues/{self.league_id}?view=mRoster&view=mTeam&scoringPeriodId={scoring_period_id}"
+            f"/segments/0/leagues/{self.league_id}?view=mMatchup&view=mRoster&view=mTeam&scoringPeriodId={scoring_period_id}"
         )
         return self._get_json(url)
 
@@ -63,15 +63,107 @@ class EspnClient:
         )
         return self._get_json(url)
 
-    def fetch_nba_scoreboard(self, date_str: str) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
-        """Fetch scoreboard for date formatted as YYYY-MM-DD or YYYYMMDD."""
-        formatted_date = date_str.replace("-", "")
+    def fetch_nba_scoreboard(self, date_str: Any) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
+        """Fetch scoreboard for date formatted as YYYY-MM-DD, YYYYMMDD, or date object."""
+        date_s = date_str.isoformat() if hasattr(date_str, "isoformat") else str(date_str)
+        formatted_date = date_s.replace("-", "")
         url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates={formatted_date}"
         return self._get_json(url)
+
 
     def fetch_nba_injuries(self) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
         url = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries"
         return self._get_json(url)
+
+    def fetch_game_summary(self, event_id: str) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
+        """Fetch game summary / boxscore for a specific NBA game event."""
+        url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event={event_id}"
+        return self._get_json(url)
+
+    def fetch_daily_game_injuries(self, event_ids: List[str]) -> Tuple[Dict[int, Dict[str, Any]], Set[int]]:
+        """
+        Fetch game summaries for all games on date D and extract official injury statuses.
+        Returns:
+            (injury_map, boxscore_athlete_ids)
+            - injury_map: athlete_id -> {status: 'OUT'|'DAY_TO_DAY'|'ACTIVE', name: str, notes: str}
+            - boxscore_athlete_ids: set of all athlete IDs on official game rosters that date.
+        """
+        injury_map: Dict[int, Dict[str, Any]] = {}
+        boxscore_athletes: Set[int] = set()
+
+        for event_id in event_ids:
+            ok, summary_data, err = self.fetch_game_summary(str(event_id))
+            if not ok or not summary_data:
+                logger.warning("Failed to fetch game summary for %s: %s", event_id, err)
+                continue
+
+            # 1. Parse official injuries block
+            for team_inj in summary_data.get("injuries", []):
+                for inj in team_inj.get("injuries", []):
+                    ath = inj.get("athlete", {})
+                    aid_raw = ath.get("id")
+                    if aid_raw is None:
+                        continue
+                    try:
+                        aid = int(aid_raw)
+                    except (ValueError, TypeError):
+                        continue
+
+                    raw_status = str(inj.get("status", "")).upper()
+                    if "OUT" in raw_status:
+                        status = "OUT"
+                    elif "DAY" in raw_status or "QUESTIONABLE" in raw_status or "PROBABLE" in raw_status:
+                        status = "DAY_TO_DAY"
+                    else:
+                        status = raw_status
+
+                    details = inj.get("details", {}) or {}
+                    inj_notes = f"{details.get('type', '')} {details.get('detail', '')}".strip()
+
+                    injury_map[aid] = {
+                        "athlete_id": aid,
+                        "name": ath.get("displayName", ""),
+                        "status": status,
+                        "notes": inj_notes
+                    }
+
+            # 2. Parse boxscore players and DNP reasons
+            boxscore = summary_data.get("boxscore", {})
+            for p_team in boxscore.get("players", []):
+                for stat_grp in p_team.get("statistics", []):
+                    for ath in stat_grp.get("athletes", []):
+                        athlete_info = ath.get("athlete", {})
+                        aid_raw = athlete_info.get("id")
+                        if aid_raw is None:
+                            continue
+                        try:
+                            aid = int(aid_raw)
+                        except (ValueError, TypeError):
+                            continue
+
+                        boxscore_athletes.add(aid)
+                        dnp = ath.get("didNotPlay", False)
+                        reason = str(ath.get("reason", "")).upper()
+
+                        if dnp and ("INJURY" in reason or "SURGERY" in reason or "ILLNESS" in reason):
+                            if aid not in injury_map:
+                                injury_map[aid] = {
+                                    "athlete_id": aid,
+                                    "name": athlete_info.get("displayName", ""),
+                                    "status": "OUT",
+                                    "notes": reason
+                                }
+                        elif dnp and ("COACH" in reason or "REST" in reason):
+                            # Healthy scratch / coach's decision
+                            if aid not in injury_map:
+                                injury_map[aid] = {
+                                    "athlete_id": aid,
+                                    "name": athlete_info.get("displayName", ""),
+                                    "status": "ACTIVE",
+                                    "notes": reason
+                                }
+
+        return injury_map, boxscore_athletes
 
     def parse_scoreboard_info(self, scoreboard_data: Dict[str, Any]) -> Dict[str, Any]:
         """Extract game day status, first tip-off time, and teams playing on this date."""

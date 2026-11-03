@@ -29,23 +29,25 @@ SLOT_PF = 3
 SLOT_C = 4
 SLOT_G = 5
 SLOT_F = 6
-SLOT_UTIL = 7
+SLOT_UTIL_ALT = 7
 SLOT_GF = 8
 SLOT_FC = 9
-SLOT_BENCH_1 = 11
-SLOT_BENCH = 11
-SLOT_BENCH_2 = 12
-SLOT_IR = 13
-SLOT_BENCH_LEGACY = 14
+SLOT_UTIL = 11      # ESPN v3 standard UTIL slot
+SLOT_BENCH = 12     # ESPN v3 standard Bench slot
+SLOT_IR = 13        # ESPN v3 standard IR slot
+SLOT_BENCH_ALT = 14 # Legacy / alternate Bench slot
 
-# Support both custom and standard ESPN fantasy basketball slot IDs
-BENCH_SLOTS = {SLOT_BENCH_1, SLOT_BENCH_2, SLOT_BENCH_LEGACY}
+# Active starter slots: 10 starters (0-6 positions, plus 3 UTIL slots at ID 11)
+ACTIVE_SLOTS = {SLOT_PG, SLOT_SG, SLOT_SF, SLOT_PF, SLOT_C, SLOT_G, SLOT_F, SLOT_UTIL_ALT, SLOT_GF, SLOT_FC, SLOT_UTIL}
+
+# Bench and IR slots (Reserve slots)
+BENCH_SLOTS = {SLOT_BENCH, SLOT_BENCH_ALT}
 IR_SLOTS = {SLOT_IR}
 RESERVE_SLOTS = BENCH_SLOTS | IR_SLOTS
 
-# Any slot that is not bench or IR is an active starter slot
 def is_active_slot(slot_id: int) -> bool:
-    return slot_id not in RESERVE_SLOTS
+    """Return True if the slot ID is an active starter lineup slot."""
+    return slot_id in ACTIVE_SLOTS and slot_id not in RESERVE_SLOTS
 
 # Injury statuses
 STATUS_OUT = "OUT"

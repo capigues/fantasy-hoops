@@ -16,10 +16,17 @@ from injury_source import InjurySource
 logger = logging.getLogger(__name__)
 
 class DailyEvaluator:
-    def __init__(self, injury_source: InjurySource, min_roster_size: int = 13, max_ir_slots: int = 1):
+    def __init__(
+        self,
+        injury_source: InjurySource,
+        min_roster_size: int = 13,
+        max_ir_slots: int = 1,
+        expected_active_slots: Optional[int] = None
+    ):
         self.injury_source = injury_source
         self.min_roster_size = min_roster_size
         self.max_ir_slots = max_ir_slots
+        self.expected_active_slots = expected_active_slots
 
     def evaluate_team_day(
         self,
@@ -30,7 +37,8 @@ class DailyEvaluator:
         final_roster: List[Dict[str, Any]],
         teams_with_games: Set[str],
         is_game_day: bool,
-        is_unknown: bool = False
+        is_unknown: bool = False,
+        available_nba_athletes: Optional[Set[int]] = None
     ) -> Dict[str, Any]:
         """
         Evaluate a single team for date D.
@@ -100,7 +108,9 @@ class DailyEvaluator:
                 "eligibleSlots": list(eligible_slots),
                 "proTeam": pro_team,
                 "injuryStatus": injury_status,
-                "injuryNotes": injury_notes
+                "injuryNotes": injury_notes,
+                "has_played": entry.get("has_played", False),
+                "minutes_played": entry.get("minutes_played", 0.0)
             }
 
             if slot_id in IR_SLOTS:
@@ -123,6 +133,11 @@ class DailyEvaluator:
                 available_bench_candidates.append(b)
                 continue
 
+            # If an authoritative list of NBA game roster athletes is provided,
+            # bench player MUST be on an official NBA game roster for date D
+            if available_nba_athletes is not None and b["playerId"] not in available_nba_athletes:
+                continue
+
             # Otherwise, check traditional pre-tip criteria:
             # Must NOT be OUT
             if b["injuryStatus"] == STATUS_OUT:
@@ -142,6 +157,17 @@ class DailyEvaluator:
             available_bench_candidates.append(b)
 
         wasted_slots = []
+        # Check for empty starter slots (< expected active starters when full roster exists)
+        if self.expected_active_slots is not None and len(final_roster) >= self.min_roster_size:
+            empty_starter_count = max(0, self.expected_active_slots - len(active_entries))
+            if empty_starter_count > 0 and available_bench_candidates:
+                wasted_slots.append({
+                    "slot_id": 11,
+                    "current_player": "EMPTY SLOT",
+                    "reason": f"{empty_starter_count} active starting slot(s) left empty",
+                    "eligible_bench_replacements": [c["name"] for c in available_bench_candidates]
+                })
+
         for a in active_entries:
             is_wasted = False
             waste_reason = ""
@@ -151,6 +177,17 @@ class DailyEvaluator:
             elif a["playerId"] is None:
                 is_wasted = True
                 waste_reason = f"Active slot {a['lineupSlotId']} is empty"
+            elif not a.get("has_played") and teams_with_games:
+                pro_team = a.get("proTeam", "")
+                had_game = (pro_team in teams_with_games or str(pro_team) in teams_with_games)
+                try:
+                    if int(pro_team) in teams_with_games:
+                        had_game = True
+                except (ValueError, TypeError):
+                    pass
+                if not had_game:
+                    is_wasted = True
+                    waste_reason = f"Active slot {a['lineupSlotId']} holds starter {a['name']} with NO GAME scheduled today"
 
             if is_wasted:
                 # Check if any candidate bench player is eligible for this active slot

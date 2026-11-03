@@ -157,10 +157,9 @@ def cmd_test_connection(args):
     print("\nReady to track trade eligibility!")
 
 
+from backtester import BacktestRunner
+
 def cmd_backtest(args):
-    db = Database(DEFAULT_CONFIG.db_path)
-    runner = get_runner(db)
-    
     if args.start_date and args.end_date:
         start_dt = datetime.strptime(args.start_date, "%Y-%m-%d").date()
         end_dt = datetime.strptime(args.end_date, "%Y-%m-%d").date()
@@ -168,26 +167,12 @@ def cmd_backtest(args):
         days = args.days or 10
         end_dt = (datetime.now(ET_TZ) - timedelta(days=1)).date()
         start_dt = end_dt - timedelta(days=days - 1)
-        
-    print(f"\nStarting Backtest from {start_dt} to {end_dt}...")
-    current_dt = start_dt
-    days_evaluated = 0
-    
-    while current_dt <= end_dt:
-        date_str = current_dt.isoformat()
-        sp = runner.get_scoring_period_id_for_date(current_dt)
-        print(f"  • Evaluating {date_str} (SP: {sp})...", end=" ", flush=True)
-        ok = runner.run_final_capture_and_evaluation(date_str)
-        if ok:
-            print("OK")
-        else:
-            print("SKIPPED / UNKNOWN")
-        days_evaluated += 1
-        current_dt += timedelta(days=1)
-        
-    print(f"\nBacktest Complete! Evaluated {days_evaluated} dates.")
-    print("\nFINAL TRADE ELIGIBILITY STATUS AFTER BACKTEST:")
-    cmd_status(args)
+
+    runner = BacktestRunner(
+        db_path=args.db or "fantasy_backtest.db",
+        dry_run=args.dry_run
+    )
+    runner.run_backtest(start_date=start_dt, end_date=end_dt, verbose=True)
 
 def main():
     parser = argparse.ArgumentParser(description="NBA Fantasy Trade Eligibility System CLI")
@@ -249,6 +234,8 @@ def main():
     p_bt.add_argument("--start-date", help="Start date (YYYY-MM-DD)")
     p_bt.add_argument("--end-date", help="End date (YYYY-MM-DD)")
     p_bt.add_argument("--days", type=int, default=10, help="Number of days to backtest ending yesterday")
+    p_bt.add_argument("--db", help="Path to database for backtest (default: fantasy_backtest.db)")
+    p_bt.add_argument("--dry-run", action="store_true", help="Run backtest in-memory without saving to any SQLite file")
     p_bt.set_defaults(func=cmd_backtest)
 
     args = parser.parse_args()

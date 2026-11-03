@@ -5,3 +5,6 @@ __pycache__/
 *.db-wal
 *.db-shm
 .pytest_cache/
+.env
+test_fix.py
+print_exact_violations.py
