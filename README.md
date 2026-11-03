@@ -80,9 +80,9 @@ A team must follow 4 core roster requirements. If any rule is violated beyond it
 
 ---
 
-#### 📖 Walkthrough: How the 14-Day Rolling Window Works (Fictional Example: Team "No Cap")
+#### 📖 Example: How the 14-Day Rolling Window Works (Team No Cap)
 
-To see exactly how a team loses trade eligibility and how they earn it back, let's follow a fictional 20-day timeline for team **No Cap**:
+To see exactly how a team loses trade eligibility and how they earn it back, let's follow a 20-day timeline for team **No Cap**:
 
 ##### Phase 1: Falling into Ineligibility (Days 1 to 9)
 * **Day 1**: No Cap sets a full lineup. All 10 starters play. *(Window count: 0 — **ELIGIBLE**)*
@@ -108,7 +108,7 @@ To see exactly how a team loses trade eligibility and how they earn it back, let
 ##### Phase 3: Earning Eligibility Back (Days 15 to 20)
 As new game days are played, older days **roll off the back** of the 14-day window:
 
-```
+```text
 Day 9:   [Day 1  ──────  Day 4 (❌) ── Day 6 (❌) ── Day 9 (❌)]  ──> 4 Violations (FLAGGED)
 Day 16:  [Day 3  ──────  Day 4 (❌) ── Day 6 (❌) ── Day 9 (❌)]  ──> 3 Violations (STILL FLAGGED: Buffer)
 Day 18:  [Day 5  ───────────── Day 6 (❌) ──────── Day 9 (❌)]  ──> 2 Violations (STILL FLAGGED: Buffer)
@@ -116,15 +116,15 @@ Day 20:  [Day 7  ─────────────────────
 ```
 
 * **Day 16** (Window looks at Days 3 to 16):
-  - Day 2 rolls out of the window!
+  - Day 2 rolls out of the window.
   - Violations remaining in window: Days 4, 6, 9 *(Count: 3)*.
-  - *Status*: **STILL INELIGIBLE**. *(The 2–3 day buffer means an ineligible team stays ineligible until reaching 1 or 0).*
+  - *Status*: **STILL INELIGIBLE** *(The 2–3 day buffer means an ineligible team stays ineligible until reaching 1 or 0)*.
 * **Day 18** (Window looks at Days 5 to 18):
-  - Day 4 rolls out of the window!
+  - Day 4 rolls out of the window.
   - Violations remaining in window: Days 6, 9 *(Count: 2)*.
   - *Status*: **STILL INELIGIBLE**.
 * **Day 20** (Window looks at Days 7 to 20):
-  - Day 6 rolls out of the window!
+  - Day 6 rolls out of the window.
   - Violations remaining in window: Only Day 9 *(Count: 1)*.
   - **🎉 CLEARED**: The count has dropped to **$\le 1$**.
   - **Status Change**: **TRADE-ELIGIBLE**.
