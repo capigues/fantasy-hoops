@@ -99,8 +99,8 @@ All evaluations operate in **NBA game days** (days where $\ge 1$ NBA game is sch
 
 ### R1 State Engine (14-Game-Day Trailing Window)
 - **Window Size**: Last 14 consecutive NBA game days.
-- **Flag Condition**: $\ge 4$ violated game days within the window $\rightarrow$ `FLAGGED` (`TRADE-INELIGIBLE`).
-- **Clear Condition**: $\le 1$ violated game days within the window $\rightarrow$ `CLEAN` (`ELIGIBLE`).
+- **Flag Condition**: $\ge 4$ violated game days within the window → `FLAGGED` (`TRADE-INELIGIBLE`).
+- **Clear Condition**: $\le 1$ violated game days within the window → `CLEAN` (`ELIGIBLE`).
 - **Hysteresis Buffer**: At 2 or 3 violations, the existing state is preserved to prevent daily flip-flopping.
 
 ### R2, R3, R4 State Engine (Grace & Cooldown)
